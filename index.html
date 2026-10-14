@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b1118">
+<title>OrbisFX Deriv Digit Analyzer</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1118;--panel:#131d28;--panel2:#1b2937;--text:#f2f6fa;--muted:#9aabba;--line:#2b3b4b;--green:#25c685;--red:#ff6678;--amber:#ffc857}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:760px;margin:auto;padding:16px 14px 36px}.head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.brand{font-size:22px;font-weight:850;letter-spacing:.08em}.sub{color:var(--muted);font-size:12px;margin-top:3px}
+.pill{border:1px solid #2d7259;color:#75e5b7;background:#103126;border-radius:99px;padding:6px 10px;font-size:11px;font-weight:800;white-space:nowrap}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;margin:12px 0}
+label{display:block;color:var(--muted);font-size:12px;margin-bottom:7px}
+select,button{font:inherit;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:12px;width:100%}
+button{font-weight:750;cursor:pointer}button:active{transform:scale(.99)}.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.statusrow{display:flex;align-items:center;justify-content:space-between;gap:10px}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--amber);margin-right:7px}.bigdigit{font-size:58px;font-weight:850;line-height:1.05;letter-spacing:-.04em}.price{font-size:20px;font-weight:750;overflow-wrap:anywhere}.muted{color:var(--muted)}.small{font-size:12px}.grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px}.digit{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 4px;text-align:center;min-width:0}.digit .n{font-size:20px;font-weight:800}.digit .pct{font-size:12px;color:var(--muted);margin-top:2px}.digit .count{font-size:11px;color:var(--muted)}.bar{height:4px;background:#334453;border-radius:5px;margin-top:7px;overflow:hidden}.bar span{display:block;height:100%;background:#6aa9ff}.signal{font-size:25px;font-weight:900;letter-spacing:.03em}.wait{color:var(--amber)}.ticks{display:flex;flex-wrap:wrap;gap:6px}.tickchip{padding:7px 9px;border-radius:8px;background:var(--panel2);font-weight:800}.tickchip:last-child{background:#24543f;color:#a4f3d1}.note{font-size:12px;line-height:1.55;color:var(--muted)}.foot{color:var(--muted);font-size:11px;text-align:center;margin-top:18px}.error{color:var(--red)}@media(min-width:600px){main{padding:24px}.twocol{display:grid;grid-template-columns:1fr 1fr;gap:12px}.twocol .card{margin:0}}
+</style>
+</head>
+<body>
+<main>
+  <header class="head">
+    <div><div class="brand">ORBISFX</div><div class="sub">DERIV DIGIT ANALYZER · LIVE TICKS</div></div>
+    <span class="pill">ANALYSIS ONLY</span>
+  </header>
+
+  <section class="card">
+    <div class="statusrow"><label for="market">Volatility Index market</label><span id="connection" class="small muted"><i class="dot"></i>Connecting…</span></div>
+    <select id="market"><option>Loading available indices…</option></select>
+    <div style="height:12px"></div>
+    <div class="statusrow">
+      <div><div class="muted small">Latest price</div><div class="price" id="price">—</div></div>
+      <div style="text-align:right"><div class="muted small">Latest last digit</div><div class="bigdigit" id="lastDigit">—</div></div>
+    </div>
+    <div class="sub" id="tickCount">Waiting for ticks…</div>
+  </section>
+
+  <div class="twocol">
+    <section class="card">
+      <div class="statusrow"><strong>Digit frequency</strong><span class="small muted" id="sampleLabel">0 ticks</span></div>
+      <p class="note">Share of each digit in the recent sample. This describes past ticks; it does not predict the next tick.</p>
+      <div class="grid" id="digitGrid"></div>
+    </section>
+    <section class="card">
+      <strong>OrbisFX assessment</strong>
+      <div style="margin-top:14px" class="signal wait" id="signal">WAIT</div>
+      <p class="note" id="signalText">Collecting live ticks. No trading edge has been established.</p>
+      <div class="controls">
+        <div><label for="chosenDigit">Digit to inspect</label><select id="chosenDigit"></select></div>
+        <div><label for="contract">Contract type</label><select id="contract"><option value="MATCHES">Matches</option><option value="DIFFERS">Differs</option></select></div>
+      </div>
+      <div style="margin-top:12px" class="statusrow"><span class="muted small">Historical hit rate in sample</span><strong id="hitRate">—</strong></div>
+      <div class="note" id="hitExplanation" style="margin-top:6px">Need more data.</div>
+    </section>
+  </div>
+
+  <section class="card">
+    <div class="statusrow"><strong>Recent last digits</strong><span class="small muted">Newest first</span></div>
+    <div class="ticks" id="recentTicks" style="margin-top:12px"><span class="muted small">No ticks received yet.</span></div>
+    <div class="controls" style="margin-top:14px"><button id="clear">Clear sample</button><button id="reconnect">Reconnect feed</button></div>
+  </section>
+
+  <section class="card">
+    <strong>Demo testing checklist</strong>
+    <p class="note">1. Let the app collect at least 100 ticks before reviewing statistics.<br>
+    2. Record a hypothetical Matches or Differs choice before the next tick; don't change it after seeing the result.<br>
+    3. Compare outcomes over a large sample and include the actual payout/price proposal before judging profitability.<br>
+    4. Keep real-money trading disabled while testing. This app never places trades.</p>
+  </section>
+
+  <section class="card">
+    <strong>Important</strong>
+    <p class="note">Matches wins only when the final contract tick ends in your selected digit. Differs wins when it ends in any other digit. A higher raw hit rate does not automatically mean a profitable contract: payouts, costs, sample size, and actual digit distribution matter. The default signal is WAIT because frequency alone is not a validated predictive edge.</p>
+  </section>
+  <div class="foot">OrbisFX prototype · Uses public market-data requests only · No account token requested</div>
+</main>
+<script>
+(() => {
+  const APP_ID = "1089"; // Public demo/test app ID; replace with your registered app ID if needed.
+  const WS_URL = `wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`;
+  const SAMPLE_SIZE = 500;
+  let ws = null, symbols = [], activeSymbol = "", ticks = [], lastQuote = null, pipSize = 2, reconnectTimer = null, requestId = 1;
+  const $ = id => document.getElementById(id);
+  const market = $("market");
+  const connection = $("connection");
+  const digitGrid = $("digitGrid");
+  const chosenDigit = $("chosenDigit");
+  const contract = $("contract");
+  for(let i=0;i<=9;i++) chosenDigit.add(new Option(String(i),String(i)));
+  function setStatus(text, good=false, error=false){
+    connection.innerHTML = `<i class="dot" style="background:${good?'var(--green)':error?'var(--red)':'var(--amber)'}"></i>${text}`;
+    connection.className = "small " + (error ? "error" : good ? "" : "muted");
+  }
+  function send(obj){ if(ws && ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({...obj,req_id:requestId++})); }
+  function connect(){
+    if(ws){ try{ws.onclose=null;ws.close();}catch(e){} }
+    clearTimeout(reconnectTimer);
+    setStatus("Connecting…");
+    ws = new WebSocket(WS_URL);
+    ws.onopen = () => {
+      setStatus("Connected · loading markets",true);
+      send({active_symbols:"full"});
+      if(activeSymbol) send({forget_all:"ticks"});
+    };
+    ws.onmessage = event => {
+      let data; try{data=JSON.parse(event.data)}catch(e){return}
+      if(data.error){ setStatus(data.error.message || "Feed error",false,true); return; }
+      if(data.msg_type==="active_symbols"){
+        const list = data.active_symbols || [];
+        symbols = list.map(s => ({
+          code: s.underlying_symbol || s.symbol,
+          name: s.underlying_symbol_name || s.display_name || s.underlying_symbol || s.symbol,
+          market: (s.market || "").toLowerCase(),
+          subgroup: (s.submarket || s.subgroup || "").toLowerCase(),
+          pip: Number(s.pip_size ?? s.pip ?? 2)
+        })).filter(s => s.code && /volatility/i.test(s.name+" "+s.market+" "+s.subgroup+" "+s.code));
+        symbols.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+        if(!symbols.length){
+          // Fallback to familiar public synthetic symbols if symbol metadata filtering changes.
+          const fallback = [
+            ["R_10","Volatility 10 Index"],["R_25","Volatility 25 Index"],
+            ["R_50","Volatility 50 Index"],["R_75","Volatility 75 Index"],
+            ["R_100","Volatility 100 Index"],["1HZ10V","Volatility 10 (1s) Index"],
+            ["1HZ25V","Volatility 25 (1s) Index"],["1HZ50V","Volatility 50 (1s) Index"],
+            ["1HZ75V","Volatility 75 (1s) Index"],["1HZ100V","Volatility 100 (1s) Index"]
+          ];
+          symbols = fallback.map(([code,name])=>({code,name,pip:2}));
+        }
+        market.innerHTML = "";
+        symbols.forEach(s=>market.add(new Option(s.name,s.code)));
+        const first = symbols[0];
+        if(first){market.value=first.code; chooseMarket(first.code);}
+        setStatus("Connected · markets loaded",true);
+      }
+      if(data.msg_type==="tick" && data.tick && data.tick.symbol===activeSymbol){
+        const t = data.tick;
+        lastQuote = Number(t.quote);
+        const decimals = Math.max(0,Math.min(10,Math.round(pipSize)));
+        const quoteText = Number.isFinite(lastQuote) ? lastQuote.toFixed(decimals) : String(t.quote);
+        $("price").textContent = quoteText;
+        const digits = quoteText.replace(/\D/g,"");
+        const d = digits.length ? Number(digits[digits.length-1]) : NaN;
+        if(Number.isInteger(d) && d>=0 && d<=9){
+          ticks.unshift({digit:d, quote:quoteText, epoch:t.epoch});
+          if(ticks.length>SAMPLE_SIZE) ticks.length=SAMPLE_SIZE;
+          $("lastDigit").textContent=d;
+          $("tickCount").textContent=`Live tick received · sample holds ${ticks.length} / ${SAMPLE_SIZE}`;
+          render();
+        }
+      }
+    };
+    ws.onerror = () => setStatus("Connection error",false,true);
+    ws.onclose = () => {
+      setStatus("Disconnected · retrying");
+      reconnectTimer=setTimeout(connect,2500);
+    };
+  }
+  function chooseMarket(code){
+    const s=symbols.find(x=>x.code===code);
+    if(!s)return;
+    activeSymbol=code; pipSize=Number.isFinite(s.pip)?s.pip:2;
+    ticks=[]; lastQuote=null;
+    $("price").textContent="—";$("lastDigit").textContent="—";$("tickCount").textContent="Subscribing to live ticks…";
+    render();
+    send({forget_all:"ticks"});
+    send({ticks:code,subscribe:1});
+  }
+  function render(){
+    const counts=Array(10).fill(0);
+    ticks.forEach(t=>counts[t.digit]++);
+    const total=ticks.length;
+    digitGrid.innerHTML="";
+    for(let d=0;d<10;d++){
+      const pct=total?counts[d]/total*100:0;
+      const el=document.createElement("div"); el.className="digit";
+      el.innerHTML=`<div class="n">${d}</div><div class="pct">${total?pct.toFixed(1)+"%":"—"}</div><div class="count">${counts[d]} ticks</div><div class="bar"><span style="width:${pct}%"></span></div>`;
+      digitGrid.appendChild(el);
+    }
+    $("sampleLabel").textContent=`${total} ticks`;
+    $("recentTicks").innerHTML="";
+    if(!total){$("recentTicks").innerHTML='<span class="muted small">No ticks received yet.</span>';}
+    else ticks.slice(0,40).forEach((t,i)=>{
+      const chip=document.createElement("span");chip.className="tickchip";chip.textContent=t.digit;
+      chip.title=t.quote+(i===0?" · latest":"");$("recentTicks").appendChild(chip);
+    });
+    const target=Number(chosenDigit.value||0), type=contract.value;
+    const matches=counts[target], differs=total-matches;
+    const hit=type==="MATCHES"?matches:differs;
+    $("hitRate").textContent=total?`${(hit/total*100).toFixed(1)}%`:"—";
+    $("hitExplanation").textContent=total
+      ? `${hit} of ${total} observed ticks ended in ${type==="MATCHES"?"digit "+target:"a digit other than "+target}. This is historical only; it is not a next-tick forecast.`
+      : "Need tick data before calculating a sample rate.";
+    $("signal").textContent="WAIT";
+    $("signal").className="signal wait";
+    $("signalText").textContent=total<100
+      ? `Collect more observations (${total}/100 minimum). No predictive edge has been established.`
+      : "Statistics available, but recent frequency alone is not a validated edge. WAIT for independent testing and payout analysis.";
+  }
+  market.addEventListener("change",()=>chooseMarket(market.value));
+  chosenDigit.addEventListener("change",render);
+  contract.addEventListener("change",render);
+  $("clear").addEventListener("click",()=>{ticks=[];render();$("tickCount").textContent="Sample cleared · collecting new ticks";});
+  $("reconnect").addEventListener("click",connect);
+  connect();
+})();
+</script>
+</body>
+</html>
