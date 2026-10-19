@@ -1,0 +1,265 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OrbisFX Live Data Test</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #080d18;
+      color: #edf4ff;
+      font-family: Arial, sans-serif;
+    }
+    .app { max-width: 700px; margin: auto; }
+    .brand { color: #38bdf8; font-weight: bold; letter-spacing: 2px; }
+    h1 { font-size: 25px; margin-bottom: 8px; }
+    .muted { color: #91a0b8; font-size: 13px; line-height: 1.6; }
+    .card {
+      background: #111a2b;
+      border: 1px solid #26334b;
+      border-radius: 14px;
+      padding: 17px;
+      margin-top: 16px;
+    }
+    label { display: block; color: #aebbd0; font-size: 13px; margin-bottom: 8px; }
+    select, button {
+      width: 100%;
+      padding: 13px;
+      border-radius: 9px;
+      border: 1px solid #34435d;
+      background: #0b1322;
+      color: white;
+      font-size: 15px;
+    }
+    button { cursor: pointer; font-weight: bold; }
+    .primary { background: #0284c7; border: none; margin-top: 12px; }
+    .secondary { margin-top: 9px; }
+    .status { color: #fbbf24; font-size: 13px; margin-top: 12px; }
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .stat { background: #0b1322; padding: 14px; border-radius: 10px; }
+    .stat small { display: block; color: #91a0b8; margin-bottom: 9px; }
+    .value { font-size: 24px; font-weight: bold; overflow-wrap: anywhere; }
+    .digit {
+      font-size: 65px;
+      font-weight: bold;
+      color: #38bdf8;
+      text-align: center;
+      padding: 8px;
+    }
+    .digits { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
+    .digitbox { background: #0b1322; padding: 10px 3px; text-align: center; border-radius: 8px; }
+    .digitbox strong { display: block; font-size: 19px; }
+    .digitbox small { color: #91a0b8; font-size: 11px; }
+    .history { display: flex; flex-wrap: wrap; gap: 7px; }
+    .chip { background: #1c2b43; padding: 8px 11px; border-radius: 7px; }
+    .good { color: #4ade80; }
+    .bad { color: #fb7185; }
+    footer { text-align: center; margin: 25px 0; }
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="brand">ORBISFX</div>
+  <h1>Live Digit Analyzer</h1>
+  <p class="muted">
+    Deriv live market data · Last-digit statistics · Connection testing
+  </p>
+
+  <div class="card">
+    <label for="market">Select a volatility market</label>
+    <select id="market">
+      <option value="1HZ10V">Volatility 10 (1s) Index</option>
+      <option value="1HZ15V">Volatility 15 (1s) Index</option>
+      <option value="1HZ25V">Volatility 25 (1s) Index</option>
+      <option value="1HZ30V">Volatility 30 (1s) Index</option>
+      <option value="1HZ50V">Volatility 50 (1s) Index</option>
+      <option value="1HZ75V">Volatility 75 (1s) Index</option>
+      <option value="1HZ90V">Volatility 90 (1s) Index</option>
+      <option value="1HZ100V">Volatility 100 (1s) Index</option>
+      <option value="R_10">Volatility 10 Index</option>
+      <option value="R_25">Volatility 25 Index</option>
+      <option value="R_50">Volatility 50 Index</option>
+      <option value="R_75">Volatility 75 Index</option>
+      <option value="R_100">Volatility 100 Index</option>
+    </select>
+    <button class="primary" id="connect">CONNECT LIVE DATA</button>
+    <button class="secondary" id="disconnect">DISCONNECT</button>
+    <div id="status" class="status">Not connected</div>
+  </div>
+
+  <div class="card">
+    <div class="stats">
+      <div class="stat">
+        <small>LAST PRICE</small>
+        <div class="value" id="price">--</div>
+      </div>
+      <div class="stat">
+        <small>LATEST DIGIT</small>
+        <div class="value" id="lastDigit">--</div>
+      </div>
+      <div class="stat">
+        <small>TICKS RECEIVED</small>
+        <div class="value" id="ticks">0</div>
+      </div>
+      <div class="stat">
+        <small>MARKET</small>
+        <div class="value" id="marketName" style="font-size:16px">Volatility 10 (1s)</div>
+      </div>
+    </div>
+    <div class="digit" id="bigDigit">--</div>
+    <p class="muted" style="text-align:center">Most recent price's final decimal digit</p>
+  </div>
+
+  <div class="card">
+    <h3>Last-Digit Frequency</h3>
+    <p class="muted">Based on the latest 100 received ticks, or fewer if still collecting.</p>
+    <div class="digits" id="digitStats"></div>
+  </div>
+
+  <div class="card">
+    <h3>Recent Digits</h3>
+    <div id="history" class="history">
+      <span class="muted">Waiting for market ticks...</span>
+    </div>
+  </div>
+
+  <footer class="muted">ORBISFX · Live data diagnostics<br>
+    Statistics are descriptive, not trading signals.</footer>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let socket = null;
+  let ticks = [];
+  let totalTicks = 0;
+  let generation = 0;
+
+  function setStatus(message, type = "") {
+    $("status").textContent = message;
+    $("status").className = "status " + type;
+  }
+
+  function renderStats() {
+    const counts = Array(10).fill(0);
+    ticks.forEach(t => counts[t.digit]++);
+    const total = ticks.length;
+
+    $("digitStats").innerHTML = counts.map((count, digit) => {
+      const percent = total ? (count / total * 100).toFixed(1) : "0.0";
+      return `<div class="digitbox">
+        <strong>${digit}</strong>
+        <small>${percent}%</small>
+        <small>${count} ticks</small>
+      </div>`;
+    }).join("");
+
+    $("history").innerHTML = ticks.slice(-25).reverse().map(t =>
+      `<span class="chip">${t.digit}</span>`
+    ).join("") || '<span class="muted">Waiting for market ticks...</span>';
+  }
+
+  function disconnect() {
+    generation++;
+    if (socket) {
+      const old = socket;
+      socket = null;
+      old.onclose = null;
+      old.onerror = null;
+      old.onmessage = null;
+      old.onopen = null;
+      old.close();
+    }
+    setStatus("Disconnected");
+  }
+
+  function connect() {
+    disconnect();
+    const myGeneration = generation;
+    ticks = [];
+    totalTicks = 0;
+    $("price").textContent = "--";
+    $("lastDigit").textContent = "--";
+    $("bigDigit").textContent = "--";
+    $("ticks").textContent = "0";
+    renderStats();
+
+    const symbol = $("market").value;
+    const label = $("market").selectedOptions[0].text;
+    $("marketName").textContent = label.replace(" Index", "");
+    setStatus("Connecting to Deriv...");
+
+    // Public market data subscription; no trading token required.
+    const ws = new WebSocket("wss://ws.derivws.com/websockets/v3?app_id=1089");
+    socket = ws;
+
+    ws.onopen = () => {
+      if (myGeneration !== generation) return;
+      setStatus("Connected. Requesting live ticks...");
+      ws.send(JSON.stringify({ ticks: symbol, subscribe: 1 }));
+    };
+
+    ws.onmessage = event => {
+      if (myGeneration !== generation) return;
+      let data;
+      try { data = JSON.parse(event.data); }
+      catch { return; }
+
+      if (data.error) {
+        setStatus("Deriv error: " + data.error.message, "bad");
+        return;
+      }
+
+      if (data.msg_type === "tick" && data.tick) {
+        const tick = data.tick;
+        const quote = String(tick.quote);
+        const decimals = quote.includes(".") ? quote.split(".")[1].length : 0;
+        const digit = decimals ? Number(quote.slice(-1)) : 0;
+
+        $("price").textContent = quote;
+        $("lastDigit").textContent = digit;
+        $("bigDigit").textContent = digit;
+
+        ticks.push({ digit, quote });
+        if (ticks.length > 100) ticks.shift();
+        totalTicks++;
+        $("ticks").textContent = totalTicks;
+        renderStats();
+        setStatus("Live data received", "good");
+      }
+    };
+
+    ws.onerror = () => {
+      if (myGeneration === generation)
+        setStatus("Connection error. Try reconnecting.", "bad");
+    };
+
+    ws.onclose = () => {
+      if (myGeneration === generation) {
+        socket = null;
+        setStatus("Connection closed. Tap Connect to retry.");
+      }
+    };
+  }
+
+  $("connect").addEventListener("click", connect);
+  $("disconnect").addEventListener("click", disconnect);
+
+  $("market").addEventListener("change", () => {
+    if (socket) connect();
+    else {
+      $("marketName").textContent =
+        $("market").selectedOptions[0].text.replace(" Index", "");
+    }
+  });
+
+  renderStats();
+})();
+</script>
+</body>
+  </html>
+  
