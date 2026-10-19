@@ -1,0 +1,321 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OrbisFX Live Data Test</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:16px;background:#080b12;color:#eef4ff;
+font-family:Arial,sans-serif}
+header{padding:12px 0;border-bottom:1px solid #263449}
+h2{color:#38bdf8;margin:0}
+.sub{color:#91a0b7;font-size:12px}
+.card{background:#111824;border:1px solid #263449;
+border-radius:13px;padding:15px;margin-top:15px}
+.label{color:#91a0b7;font-size:12px}
+.value{font-size:24px;font-weight:bold;margin:8px 0}
+input,select,button{width:100%;padding:12px;margin-top:10px;
+border-radius:8px;border:1px solid #30435b;background:#172538;
+color:white;font-size:14px}
+button{background:#087eaf;border:0;font-weight:bold}
+.stop{background:#344155}
+.save{background:#176c49}
+.small{font-size:12px;color:#91a0b7;line-height:1.6}
+.digit{font-size:38px;color:#38bdf8}
+.log{font-size:12px;line-height:1.9;overflow-wrap:anywhere}
+.good{color:#4ade80}.warn{color:#fbbf24}.bad{color:#fb7185}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{background:#0b111b;border-radius:9px;padding:12px}
+</style>
+</head>
+<body>
+<header>
+  <h2>ORBISFX</h2>
+  <div class="sub">LIVE DATA TEST • DERIV MARKET ANALYZER</div>
+</header>
+
+<div class="card">
+  <div class="label">CONNECTION</div>
+  <div id="status" class="value warn">Disconnected</div>
+  <label class="label" for="appid">Deriv App ID</label>
+  <input id="appid" inputmode="numeric" value="1089"
+         placeholder="Enter your App ID">
+  <p class="small">1089 is a test App ID. Use your registered App ID for your own deployment.</p>
+  <label class="label" for="market">SELECT MARKET</label>
+  <select id="market">
+    <option value="1HZ10V">Volatility 10 (1s)</option>
+    <option value="1HZ25V">Volatility 25 (1s)</option>
+    <option value="1HZ50V">Volatility 50 (1s)</option>
+    <option value="1HZ75V">Volatility 75 (1s)</option>
+    <option value="1HZ100V">Volatility 100 (1s)</option>
+    <option value="R_10">Volatility 10</option>
+    <option value="R_25">Volatility 25</option>
+    <option value="R_50">Volatility 50</option>
+    <option value="R_75">Volatility 75</option>
+    <option value="R_100">Volatility 100</option>
+  </select>
+  <button onclick="connectLive()">Connect & Test Live Data</button>
+  <button class="stop" onclick="disconnect()">Stop Connection</button>
+</div>
+
+<div class="card">
+  <div class="label">LATEST LIVE PRICE</div>
+  <div id="price" class="value">—</div>
+  <div class="label">LAST DIGIT</div>
+  <div id="digit" class="digit">—</div>
+  <div class="small">Market: <span id="symbol">—</span></div>
+  <div class="small">Last tick time: <span id="ticktime">—</span></div>
+</div>
+
+<div class="card">
+  <div class="stats">
+    <div class="stat">
+      <div class="label">TICKS RECEIVED</div>
+      <div id="ticks" class="value">0</div>
+    </div>
+    <div class="stat">
+      <div class="label">DATA ERRORS</div>
+      <div id="errors" class="value">0</div>
+    </div>
+    <div class="stat">
+      <div class="label">MATCHES</div>
+      <div id="matches" class="value">0</div>
+    </div>
+    <div class="stat">
+      <div class="label">DIFFERS</div>
+      <div id="differs" class="value">0</div>
+    </div>
+  </div>
+  <p class="small">Matches = same last digit as the previous tick.
+  Differs = different last digit. These are descriptive statistics,
+  not predictions.</p>
+</div>
+
+<div class="card">
+  <div class="label">SAVE LIVE DATA</div>
+  <p class="small">Ticks are stored temporarily in this page while it is open.
+  Download a CSV copy to keep your test records.</p>
+  <button class="save" onclick="saveCSV()">Save Data as CSV</button>
+  <button class="stop" onclick="clearData()">Clear Test Records</button>
+  <p class="small" id="saved">No records saved yet.</p>
+</div>
+
+<div class="card">
+  <div class="label">RECENT LIVE TICKS</div>
+  <div id="log" class="log">Waiting for connection...</div>
+</div>
+
+<script>
+let ws = null;
+let rows = [];
+let count = 0, errors = 0, matches = 0, differs = 0;
+let previousDigit = null;
+let active = false;
+let requestNumber = 1;
+
+const el = id => document.getElementById(id);
+
+function setStatus(message, cls) {
+  el("status").textContent = message;
+  el("status").className = "value " + cls;
+}
+
+function connectLive() {
+  disconnect(false);
+
+  const appId = el("appid").value.trim();
+  const symbol = el("market").value;
+
+  if (!/^\d+$/.test(appId)) {
+    setStatus("Enter a valid App ID", "bad");
+    return;
+  }
+
+  count = 0;
+  errors = 0;
+  matches = 0;
+  differs = 0;
+  previousDigit = null;
+  rows = [];
+  el("ticks").textContent = "0";
+  el("errors").textContent = "0";
+  el("matches").textContent = "0";
+  el("differs").textContent = "0";
+  el("price").textContent = "—";
+  el("digit").textContent = "—";
+  el("ticktime").textContent = "—";
+  el("symbol").textContent = symbol;
+  el("log").textContent = "Connecting to Deriv...";
+  el("saved").textContent = "No records saved yet.";
+
+  setStatus("Connecting...", "warn");
+
+  try {
+    ws = new WebSocket(
+      "wss://ws.derivws.com/websockets/v3?app_id=" +
+      encodeURIComponent(appId)
+    );
+  } catch (e) {
+    setStatus("Connection failed", "bad");
+    return;
+  }
+
+  const connection = ws;
+  const reqId = requestNumber++;
+
+  connection.onopen = () => {
+    if (ws !== connection) return;
+    active = true;
+    setStatus("Connected — waiting for ticks", "good");
+    connection.send(JSON.stringify({
+      ticks: symbol,
+      subscribe: 1,
+      req_id: reqId
+    }));
+  };
+
+  connection.onmessage = event => {
+    if (ws !== connection) return;
+
+    let data;
+    try {
+      data = JSON.parse(event.data);
+    } catch (e) {
+      errors++;
+      el("errors").textContent = errors;
+      return;
+    }
+
+    if (data.error) {
+      errors++;
+      el("errors").textContent = errors;
+      setStatus("API error: " + data.error.message, "bad");
+      return;
+    }
+
+    if (data.msg_type !== "tick" || !data.tick) return;
+
+    const t = data.tick;
+    if (t.quote === undefined || t.pip_size === undefined) return;
+
+    const quote = Number(t.quote);
+    const precision = Number(t.pip_size);
+
+    if (!Number.isFinite(quote) ||
+        !Number.isInteger(precision) ||
+        precision < 0 || precision > 10) return;
+
+    const price = quote.toFixed(precision);
+    const digit = Number(price.slice(-1));
+    const time = new Date(Number(t.epoch) * 1000);
+
+    count++;
+    if (previousDigit !== null) {
+      if (previousDigit === digit) matches++;
+      else differs++;
+    }
+    previousDigit = digit;
+
+    const record = {
+      time: time.toISOString(),
+      symbol: t.symbol || symbol,
+      price,
+      digit
+    };
+    rows.push(record);
+
+    el("price").textContent = price;
+    el("digit").textContent = digit;
+    el("ticktime").textContent = time.toLocaleTimeString();
+    el("ticks").textContent = count;
+    el("matches").textContent = matches;
+    el("differs").textContent = differs;
+    el("saved").textContent = rows.length + " tick records ready to download.";
+    setStatus("Live data received", "good");
+
+    const line = document.createElement("div");
+    line.textContent = time.toLocaleTimeString() +
+      " | " + price + " | Digit " + digit;
+    el("log").prepend(line);
+
+    while (el("log").children.length > 12) {
+      el("log").lastElementChild.remove();
+    }
+  };
+
+  connection.onerror = () => {
+    if (ws === connection) setStatus("WebSocket error", "bad");
+  };
+
+  connection.onclose = () => {
+    if (ws !== connection) return;
+    active = false;
+    setStatus("Connection closed", "warn");
+  };
+}
+
+function disconnect(showStatus = true) {
+  active = false;
+  if (ws) {
+    const old = ws;
+    ws = null;
+    old.onopen = null;
+    old.onmessage = null;
+    old.onerror = null;
+    old.onclose = null;
+    if (old.readyState === WebSocket.OPEN) {
+      old.close();
+    } else if (old.readyState === WebSocket.CONNECTING) {
+      old.close();
+    }
+  }
+  if (showStatus) setStatus("Disconnected", "warn");
+}
+
+function csvCell(value) {
+  return '"' + String(value).replace(/"/g, '""') + '"';
+}
+
+function saveCSV() {
+  if (!rows.length) {
+    el("saved").textContent = "No live tick records to save yet.";
+    return;
+  }
+
+  const header = ["Timestamp UTC", "Symbol", "Price", "Last Digit"];
+  const lines = [header, ...rows.map(r =>
+    [r.time, r.symbol, r.price, r.digit]
+  )].map(row => row.map(csvCell).join(","));
+
+  const blob = new Blob(["\uFEFF" + lines.join("\r\n")], {
+    type: "text/csv;charset=utf-8;"
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "OrbisFX_Live_Data_" +
+    new Date().toISOString().replace(/[:.]/g, "-") + ".csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  el("saved").textContent = "CSV download requested: " + rows.length +
+    " records. Check your Downloads folder.";
+}
+
+function clearData() {
+  rows = [];
+  count = errors = matches = differs = 0;
+  previousDigit = null;
+  el("ticks").textContent = "0";
+  el("errors").textContent = "0";
+  el("matches").textContent = "0";
+  el("differs").textContent = "0";
+  el("log").textContent = "Records cleared.";
+  el("saved").textContent = "No records saved yet.";
+}
+</script>
+</body>
+</html>
