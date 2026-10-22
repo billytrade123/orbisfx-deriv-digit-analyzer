@@ -1,0 +1,97 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OrbisFX Live Tick Test</title>
+<style>
+body{margin:0;padding:20px;background:#080d18;color:#eef4ff;font-family:Arial,sans-serif}
+main{max-width:600px;margin:auto}
+h1{color:#38bdf8}
+.card{background:#111a2b;border:1px solid #26354d;border-radius:12px;padding:16px;margin:14px 0}
+button,select{width:100%;padding:12px;margin-top:10px;background:#17243a;color:white;border:1px solid #334766;border-radius:8px}
+.value{font-size:23px;font-weight:bold;margin-top:8px}
+.muted{color:#9caec7}
+</style>
+</head>
+<body>
+<main>
+<h1>ORBISFX</h1>
+<p class="muted">DERIV LIVE TICK TEST</p>
+<div class="card">
+<div>Connection status</div>
+<div class="value" id="status">Not connected</div>
+<button id="connect">Connect to Deriv</button>
+</div>
+<div class="card">
+<label for="market">Select market</label>
+<select id="market">
+<option value="1HZ100V">Volatility 100 (1s) Index</option>
+<option value="1HZ50V">Volatility 50 (1s) Index</option>
+<option value="R_100">Volatility 100 Index</option>
+<option value="R_50">Volatility 50 Index</option>
+<option value="R_75">Volatility 75 Index</option>
+<option value="R_25">Volatility 25 Index</option>
+</select>
+<div class="muted">Live price</div>
+<div class="value" id="price">--</div>
+<div class="muted">Last digit</div>
+<div class="value" id="digit">--</div>
+<div class="muted">Ticks received</div>
+<div class="value" id="count">0</div>
+<div class="muted">Recent prices</div>
+<div id="history">Waiting for ticks...</div>
+</div>
+<p class="muted">Live market data test only. No trades are placed.</p>
+</main>
+<script>
+let ws=null,count=0,history=[];
+const statusEl=document.getElementById('status');
+const priceEl=document.getElementById('price');
+const digitEl=document.getElementById('digit');
+const countEl=document.getElementById('count');
+const historyEl=document.getElementById('history');
+function disconnect(){
+ if(ws){ws.close();ws=null;}
+}
+function connect(){
+ disconnect();
+ count=0;history=[];
+ countEl.textContent='0';
+ priceEl.textContent='--';digitEl.textContent='--';
+ historyEl.textContent='Waiting for ticks...';
+ statusEl.textContent='Connecting...';
+ try{
+  ws=new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
+  ws.onopen=()=>{
+   statusEl.textContent='Connected; requesting ticks...';
+   ws.send(JSON.stringify({ticks:document.getElementById('market').value,subscribe:1}));
+  };
+  ws.onmessage=(event)=>{
+   const data=JSON.parse(event.data);
+   if(data.error){statusEl.textContent='Error: '+data.error.message;return;}
+   if(data.tick){
+    const p=data.tick.quote;
+    const s=String(p);
+    count++;
+    priceEl.textContent=s;
+    digitEl.textContent=s.replace('.','').slice(-1);
+    countEl.textContent=count;
+    history.unshift(s);
+    history=history.slice(0,8);
+    historyEl.textContent=history.join(' | ');
+    statusEl.textContent='LIVE';
+   }
+  };
+  ws.onerror=()=>{statusEl.textContent='Connection error';};
+  ws.onclose=()=>{if(statusEl.textContent==='LIVE'||statusEl.textContent.startsWith('Connected'))statusEl.textContent='Disconnected';};
+ }catch(e){statusEl.textContent='Could not connect';}
+}
+document.getElementById('connect').addEventListener('click',connect);
+document.getElementById('market').addEventListener('change',()=>{
+ if(ws&&ws.readyState===WebSocket.OPEN)connect();
+});
+</script>
+</body>
+</html>
