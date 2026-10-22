@@ -6,91 +6,205 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OrbisFX Live Tick Test</title>
 <style>
-body{margin:0;padding:20px;background:#080d18;color:#eef4ff;font-family:Arial,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:#080d16;color:#edf4ff;font-family:Arial,sans-serif;padding:18px}
 main{max-width:600px;margin:auto}
-h1{color:#38bdf8}
-.card{background:#111a2b;border:1px solid #26354d;border-radius:12px;padding:16px;margin:14px 0}
-button,select{width:100%;padding:12px;margin-top:10px;background:#17243a;color:white;border:1px solid #334766;border-radius:8px}
-.value{font-size:23px;font-weight:bold;margin-top:8px}
-.muted{color:#9caec7}
+h1{color:#55d6ff;margin-bottom:5px}
+.sub{color:#8d9bb1;font-size:14px}
+.panel{background:#111a29;border:1px solid #25344b;border-radius:14px;padding:17px;margin:16px 0}
+label{display:block;color:#aab9ce;margin:12px 0 7px}
+select,input,button{width:100%;padding:13px;border-radius:9px;border:1px solid #33445e;background:#0b1220;color:white;font-size:15px}
+button{background:#167cbd;border:0;font-weight:bold;margin-top:12px}
+button:disabled{opacity:.6}
+.status{font-weight:bold;color:#ffc857}
+.price{font-size:32px;font-weight:bold;margin:12px 0;overflow-wrap:anywhere}
+.digit{font-size:55px;font-weight:bold;color:#55d6ff}
+.muted{color:#92a2b8;font-size:13px}
+.digits{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+.digitbox{background:#202e43;padding:10px 13px;border-radius:8px;font-weight:bold}
+#log{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;color:#9eb3ce}
 </style>
 </head>
 <body>
 <main>
 <h1>ORBISFX</h1>
-<p class="muted">DERIV LIVE TICK TEST</p>
-<div class="card">
-<div>Connection status</div>
-<div class="value" id="status">Not connected</div>
-<button id="connect">Connect to Deriv</button>
-</div>
-<div class="card">
-<label for="market">Select market</label>
-<select id="market">
+<div class="sub">DERIV LIVE TICK TEST · REAL-TIME DATA</div>
+
+<div class="panel">
+<label for="symbol">Volatility market</label>
+<select id="symbol">
 <option value="1HZ100V">Volatility 100 (1s) Index</option>
+<option value="1HZ75V">Volatility 75 (1s) Index</option>
 <option value="1HZ50V">Volatility 50 (1s) Index</option>
+<option value="1HZ25V">Volatility 25 (1s) Index</option>
+<option value="1HZ10V">Volatility 10 (1s) Index</option>
 <option value="R_100">Volatility 100 Index</option>
-<option value="R_50">Volatility 50 Index</option>
 <option value="R_75">Volatility 75 Index</option>
+<option value="R_50">Volatility 50 Index</option>
 <option value="R_25">Volatility 25 Index</option>
+<option value="R_10">Volatility 10 Index</option>
 </select>
-<div class="muted">Live price</div>
-<div class="value" id="price">--</div>
-<div class="muted">Last digit</div>
-<div class="value" id="digit">--</div>
-<div class="muted">Ticks received</div>
-<div class="value" id="count">0</div>
-<div class="muted">Recent prices</div>
-<div id="history">Waiting for ticks...</div>
+<label for="appid">Deriv App ID</label>
+<input id="appid" type="number" placeholder="Enter your registered App ID">
+<button id="connect">CONNECT LIVE DATA</button>
+<div style="margin-top:15px">Connection: <span id="status" class="status">Not connected</span></div>
+<div id="message" class="muted">Enter your App ID, then connect.</div>
 </div>
-<p class="muted">Live market data test only. No trades are placed.</p>
+
+<div class="panel">
+<div class="muted">LIVE MARKET PRICE</div>
+<div id="price" class="price">Waiting for data...</div>
+<div class="muted">Latest tick time: <span id="ticktime">—</span></div>
+</div>
+
+<div class="panel">
+<div class="muted">LAST DIGIT</div>
+<div id="lastdigit" class="digit">—</div>
+<div class="muted">Last-digit history (newest first)</div>
+<div id="digits" class="digits"></div>
+</div>
+
+<div class="panel">
+<strong>Live test log</strong>
+<p id="log">Ready to connect.</p>
+<p class="muted">This page displays market ticks, not guaranteed trading signals.</p>
+</div>
 </main>
+
 <script>
-let ws=null,count=0,history=[];
-const statusEl=document.getElementById('status');
-const priceEl=document.getElementById('price');
-const digitEl=document.getElementById('digit');
-const countEl=document.getElementById('count');
-const historyEl=document.getElementById('history');
-function disconnect(){
- if(ws){ws.close();ws=null;}
+const $ = id => document.getElementById(id);
+let ws = null;
+let history = [];
+let connected = false;
+
+function status(text, color="#ffc857") {
+  $("status").textContent = text;
+  $("status").style.color = color;
 }
-function connect(){
- disconnect();
- count=0;history=[];
- countEl.textContent='0';
- priceEl.textContent='--';digitEl.textContent='--';
- historyEl.textContent='Waiting for ticks...';
- statusEl.textContent='Connecting...';
- try{
-  ws=new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
-  ws.onopen=()=>{
-   statusEl.textContent='Connected; requesting ticks...';
-   ws.send(JSON.stringify({ticks:document.getElementById('market').value,subscribe:1}));
-  };
-  ws.onmessage=(event)=>{
-   const data=JSON.parse(event.data);
-   if(data.error){statusEl.textContent='Error: '+data.error.message;return;}
-   if(data.tick){
-    const p=data.tick.quote;
-    const s=String(p);
-    count++;
-    priceEl.textContent=s;
-    digitEl.textContent=s.replace('.','').slice(-1);
-    countEl.textContent=count;
-    history.unshift(s);
-    history=history.slice(0,8);
-    historyEl.textContent=history.join(' | ');
-    statusEl.textContent='LIVE';
-   }
-  };
-  ws.onerror=()=>{statusEl.textContent='Connection error';};
-  ws.onclose=()=>{if(statusEl.textContent==='LIVE'||statusEl.textContent.startsWith('Connected'))statusEl.textContent='Disconnected';};
- }catch(e){statusEl.textContent='Could not connect';}
+function log(text) {
+  $("log").textContent = new Date().toLocaleTimeString() + " — " + text;
 }
-document.getElementById('connect').addEventListener('click',connect);
-document.getElementById('market').addEventListener('change',()=>{
- if(ws&&ws.readyState===WebSocket.OPEN)connect();
+function disconnect() {
+  connected = false;
+  if (ws) {
+    const old = ws;
+    ws = null;
+    old.onclose = null;
+    old.onerror = null;
+    old.onmessage = null;
+    old.close();
+  }
+}
+$("connect").addEventListener("click", () => {
+  disconnect();
+  const appid = $("appid").value.trim();
+  const symbol = $("symbol").value;
+  if (!appid) {
+    status("App ID required");
+    $("message").textContent = "Enter your registered Deriv App ID first.";
+    return;
+  }
+  if (!/^\d+$/.test(appid)) {
+    status("Invalid App ID");
+    return;
+  }
+
+  history = [];
+  $("digits").replaceChildren();
+  $("lastdigit").textContent = "—";
+  $("price").textContent = "Waiting for data...";
+  $("ticktime").textContent = "—";
+  $("connect").disabled = true;
+  status("Connecting...");
+  $("message").textContent = "Opening live market connection...";
+  log("Connecting to Deriv WebSocket.");
+
+  try {
+    ws = new WebSocket(
+      "wss://ws.derivws.com/websockets/v3?app_id=" +
+      encodeURIComponent(appid)
+    );
+  } catch (e) {
+    status("Connection error");
+    $("message").textContent = e.message;
+    $("connect").disabled = false;
+    return;
+  }
+
+  const socket = ws;
+  socket.onopen = () => {
+    if (ws !== socket) return;
+    connected = true;
+    status("Connected", "#55e6a5");
+    $("message").textContent = "Requesting live ticks...";
+    socket.send(JSON.stringify({
+      ticks: symbol,
+      subscribe: 1
+    }));
+    log("WebSocket opened. Requested " + symbol);
+  };
+
+  socket.onmessage = event => {
+    if (ws !== socket) return;
+    let data;
+    try { data = JSON.parse(event.data); }
+    catch { return; }
+
+    if (data.error) {
+      status("API error");
+      $("message").textContent = data.error.message || "Request failed";
+      log("API error: " + (data.error.message || "Unknown error"));
+      return;
+    }
+
+    if (data.msg_type === "tick" && data.tick) {
+      const tick = data.tick;
+      const quote = String(tick.quote);
+      const match = quote.match(/\.(\d+)/);
+      const digit = Number(
+        match ? match[1].slice(-1) : quote.slice(-1)
+      );
+
+      $("price").textContent = quote;
+      $("lastdigit").textContent = digit;
+      $("ticktime").textContent =
+        tick.epoch ? new Date(tick.epoch * 1000).toLocaleTimeString() : "—";
+      $("message").textContent = "Receiving live ticks for " + symbol;
+      status("LIVE", "#55e6a5");
+      history.unshift(digit);
+      history = history.slice(0, 10);
+      $("digits").replaceChildren();
+      history.forEach(d => {
+        const span = document.createElement("span");
+        span.className = "digitbox";
+        span.textContent = d;
+        $("digits").appendChild(span);
+      });
+      log("Tick received. Last digit: " + digit);
+    }
+  };
+
+  socket.onerror = () => {
+    if (ws !== socket) return;
+    status("Connection error");
+    $("message").textContent =
+      "Connection failed. Check your internet and App ID.";
+    log("WebSocket error.");
+  };
+
+  socket.onclose = () => {
+    if (ws !== socket) return;
+    ws = null;
+    connected = false;
+    status("Disconnected");
+    $("message").textContent = "Connection closed. Tap Connect to retry.";
+    $("connect").disabled = false;
+    log("Connection closed.");
+  };
+});
+
+$("symbol").addEventListener("change", () => {
+  if (connected) $("connect").click();
 });
 </script>
 </body>
